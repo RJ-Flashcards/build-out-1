@@ -6,7 +6,7 @@ let flashcards = [];
 let currentCard = 0;
 let isFlipped = false;
 
-// ⬇️ NEW: small helper to inject badge styles so you don't need to edit CSS separately
+// Inject badge CSS so you don’t have to edit style.css
 (function ensureBadgeStyles(){
   const id = 'incomplete-badge-style';
   if (!document.getElementById(id)) {
@@ -123,10 +123,7 @@ function fetchFlashcards() {
         if (looksLikeHeader) rows = rows.slice(1);
       }
 
-      // ⬇️ UPDATED:
-      // - Keep rows where EITHER side has content (so we can show placeholders)
-      // - Preserve rawTerm/rawDef for accurate duplicate detection & dictionary lookup
-      // - Compute placeholders and badge side flags
+      // ✅ Keep rows if EITHER side has content; add placeholders + badge flags
       flashcards = rows
         .filter(r => r && r.length >= 1 && (
           ((r[0] ?? '').trim() !== '') || ((r[1] ?? '').trim() !== '')
@@ -138,19 +135,17 @@ function fetchFlashcards() {
           const term       = rawTerm || 'No word / phrase added';
           const definition = rawDef  || 'No definition added';
 
-          const badgeOnFront = !!rawTerm && !rawDef; // word present, definition missing
-          const badgeOnBack  = !rawTerm && !!rawDef; // definition present, word missing
+          const badgeOnFront =  !!rawTerm && !rawDef;  // word present, definition missing
+          const badgeOnBack  =  !rawTerm && !!rawDef;  // definition present, word missing
 
           return { rawTerm, rawDef, term, definition, badgeOnFront, badgeOnBack };
         });
 
-      // Tag duplicates (based on rawTerm if present)
+      // Tag duplicates (use the real word when present)
       flashcards = tagDuplicates(flashcards);
 
       shuffleFlashcards();
       displayCard();
-      renderAZ();
-
     })
     .catch(err => {
       document.getElementById('card-front').innerText = 'Error loading flashcards.';
@@ -164,47 +159,21 @@ function shuffleFlashcards() {
     [flashcards[i], flashcards[j]] = [flashcards[j], flashcards[i]];
   }
 }
-function getAZItems() {
-  // keep if either side exists; then apply the same placeholders
-  return flashcards
-    .filter(c => (c.rawTerm?.trim() || c.rawDef?.trim()))
-    .map(c => ({
-      word: c.rawTerm?.trim() ? c.term : 'No word / phrase added',
-      definition: c.rawDef?.trim() ? c.definition : 'No definition added'
-    }))
-    .sort((a, b) => a.word.localeCompare(b.word, undefined, { sensitivity: 'base' }));
-}
-
-function renderAZ() {
-  const ul = document.getElementById('az-list');
-  if (!ul) return; // if your A–Z UI is not present on this page
-  ul.innerHTML = '';
-  const items = getAZItems();
-  if (!items.length) {
-    ul.innerHTML = '<li>No data available</li>';
-    return;
-  }
-  items.forEach(it => {
-    const li = document.createElement('li');
-    li.innerHTML = `<strong>${escapeHTML(it.word)}</strong> — ${escapeHTML(it.definition)}`;
-    ul.appendChild(li);
-  });
-}
 
 /* ---------------------------
    Rendering
 ---------------------------- */
 function displayCard() {
   const front = document.getElementById('card-front');
-  const back = document.getElementById('card-back');
-  const card = flashcards[currentCard];
+  const back  = document.getElementById('card-back');
+  const card  = flashcards[currentCard];
 
-  // FRONT (word side) — show badge only if definition is missing but word exists
+  // FRONT (word side): badge when definition is missing but word exists
   front.innerHTML = card.badgeOnFront
     ? `${escapeHTML(card.term)} <span class="incomplete-badge">Needs edit in Sheet</span>`
     : `${escapeHTML(card.term)}`;
 
-  // Triangle icon if duplicate (▲) — keep your existing UI
+  // Duplicate ▲ triangle after front content
   if (card.isDuplicate) {
     const icon = document.createElement('span');
     icon.className = 'dup-flag';
@@ -216,7 +185,7 @@ function displayCard() {
     front.appendChild(icon);
   }
 
-  // BACK (definition side) — show badge only if word is missing but definition exists
+  // BACK (definition side): badge when word is missing but definition exists
   back.innerHTML = card.badgeOnBack
     ? `${escapeHTML(card.definition)} <span class="incomplete-badge">Needs edit in Sheet</span>`
     : `${escapeHTML(card.definition)}`;
@@ -226,11 +195,11 @@ function displayCard() {
   if (isFlipped) flashcardEl.classList.add('flipped');
   else flashcardEl.classList.remove('flipped');
 
-  // 👇 expose the REAL word for dictionary lookup (prefer rawTerm over placeholder)
+  // Expose REAL word for dictionary lookup (don’t pass the placeholder)
   window.currentWord = (card.rawTerm || '').trim();
 }
 
-// Small utility to avoid injecting raw HTML from CSV
+// Avoid injecting raw HTML from CSV
 function escapeHTML(str) {
   return String(str ?? '')
     .replaceAll('&', '&amp;')

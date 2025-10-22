@@ -149,6 +149,8 @@ function fetchFlashcards() {
 
       shuffleFlashcards();
       displayCard();
+      renderAZ();
+
     })
     .catch(err => {
       document.getElementById('card-front').innerText = 'Error loading flashcards.';
@@ -161,6 +163,32 @@ function shuffleFlashcards() {
     const j = Math.floor(Math.random() * (i + 1));
     [flashcards[i], flashcards[j]] = [flashcards[j], flashcards[i]];
   }
+}
+function getAZItems() {
+  // keep if either side exists; then apply the same placeholders
+  return flashcards
+    .filter(c => (c.rawTerm?.trim() || c.rawDef?.trim()))
+    .map(c => ({
+      word: c.rawTerm?.trim() ? c.term : 'No word / phrase added',
+      definition: c.rawDef?.trim() ? c.definition : 'No definition added'
+    }))
+    .sort((a, b) => a.word.localeCompare(b.word, undefined, { sensitivity: 'base' }));
+}
+
+function renderAZ() {
+  const ul = document.getElementById('az-list');
+  if (!ul) return; // if your A–Z UI is not present on this page
+  ul.innerHTML = '';
+  const items = getAZItems();
+  if (!items.length) {
+    ul.innerHTML = '<li>No data available</li>';
+    return;
+  }
+  items.forEach(it => {
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>${escapeHTML(it.word)}</strong> — ${escapeHTML(it.definition)}`;
+    ul.appendChild(li);
+  });
 }
 
 /* ---------------------------

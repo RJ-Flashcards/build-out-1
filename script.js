@@ -6,6 +6,30 @@ let flashcards = [];
 let currentCard = 0;
 let isFlipped = false;
 
+// ⬇️ NEW: small helper to inject badge styles so you don't need to edit CSS separately
+(function ensureBadgeStyles(){
+  const id = 'incomplete-badge-style';
+  if (!document.getElementById(id)) {
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `
+      .incomplete-badge {
+        display: inline-block;
+        font-size: 12px;
+        margin-left: 6px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background-color: #ffeeba;
+        color: #856404;
+        font-weight: 500;
+        vertical-align: middle;
+        white-space: nowrap;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+})();
+
 /* ---------------------------
    Small CSV parser (handles quotes & commas)
 ---------------------------- */
@@ -60,8 +84,8 @@ function parseCSV(text) {
 ---------------------------------------------- */
 function buildTermCounts(cards) {
   const counts = {};
-  cards.forEach(({ term }) => {
-    const key = (term || '').trim().toLowerCase();
+  cards.forEach(({ rawTerm, term }) => {
+    const key = ((rawTerm ?? term) || '').trim().toLowerCase();
     if (!key) return;
     counts[key] = (counts[key] || 0) + 1;
   });
@@ -72,7 +96,7 @@ function tagDuplicates(cards) {
   const counts = buildTermCounts(cards);
   return cards.map(c => ({
     ...c,
-    isDuplicate: counts[(c.term || '').trim().toLowerCase()] > 1
+    isDuplicate: counts[((c.rawTerm ?? c.term) || '').trim().toLowerCase()] > 1
   }));
 }
 
@@ -99,15 +123,28 @@ function fetchFlashcards() {
         if (looksLikeHeader) rows = rows.slice(1);
       }
 
-      // Map to {term, definition}, ignore empty terms
+      // ⬇️ UPDATED:
+      // - Keep rows where EITHER side has content (so we can show placeholders)
+      // - Preserve rawTerm/rawDef for accurate duplicate detection & dictionary lookup
+      // - Compute placeholders and badge side flags
       flashcards = rows
-        .filter(r => r && r.length >= 1 && (r[0] ?? '').trim() !== '')
-        .map(r => ({
-          term: (r[0] ?? '').trim(),
-          definition: (r[1] ?? '').trim(),
-        }));
+        .filter(r => r && r.length >= 1 && (
+          ((r[0] ?? '').trim() !== '') || ((r[1] ?? '').trim() !== '')
+        ))
+        .map(r => {
+          const rawTerm = (r[0] ?? '').trim();
+          const rawDef  = (r[1] ?? '').trim();
 
-      // Tag duplicates before shuffling
+          const term       = rawTerm || 'No word / phrase added';
+          const definition = rawDef  || 'No definition added';
+
+          const badgeOnFront = !!rawTerm && !rawDef; // word present, definition missing
+          const badgeOnBack  = !rawTerm && !!rawDef; // definition present, word missing
+
+          return { rawTerm, rawDef, term, definition, badgeOnFront, badgeOnBack };
+        });
+
+      // Tag duplicates (based on rawTerm if present)
       flashcards = tagDuplicates(flashcards);
 
       shuffleFlashcards();
@@ -134,15 +171,12 @@ function displayCard() {
   const back = document.getElementById('card-back');
   const card = flashcards[currentCard];
 
-  // Clear and render front
-  front.textContent = ''; // reset entirely before adding nodes
+  // FRONT (word side) — show badge only if definition is missing but word exists
+  front.innerHTML = card.badgeOnFront
+    ? `${escapeHTML(card.term)} <span class="incomplete-badge">Needs edit in Sheet</span>`
+    : `${escapeHTML(card.term)}`;
 
-  // Word node
-  const wordNode = document.createElement('span');
-  wordNode.textContent = card.term || '';
-  front.appendChild(wordNode);
-
-  // Triangle icon if duplicate (▲)
+  // Triangle icon if duplicate (▲) — keep your existing UI
   if (card.isDuplicate) {
     const icon = document.createElement('span');
     icon.className = 'dup-flag';
@@ -154,16 +188,28 @@ function displayCard() {
     front.appendChild(icon);
   }
 
-  // Back
-  back.textContent = card.definition || '';
+  // BACK (definition side) — show badge only if word is missing but definition exists
+  back.innerHTML = card.badgeOnBack
+    ? `${escapeHTML(card.definition)} <span class="incomplete-badge">Needs edit in Sheet</span>`
+    : `${escapeHTML(card.definition)}`;
 
   // Keep current flipped state
   const flashcardEl = document.getElementById('flashcard');
   if (isFlipped) flashcardEl.classList.add('flipped');
   else flashcardEl.classList.remove('flipped');
 
-  // 👇 expose current word for dictionary lookup
-  window.currentWord = card.term || '';
+  // 👇 expose the REAL word for dictionary lookup (prefer rawTerm over placeholder)
+  window.currentWord = (card.rawTerm || '').trim();
+}
+
+// Small utility to avoid injecting raw HTML from CSV
+function escapeHTML(str) {
+  return String(str ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 /* ---------------------------
@@ -267,11 +313,11 @@ document.addEventListener("DOMContentLoaded", () => {
     e.stopPropagation();
     const dictKey = choice.value;
 
-    // Prefer window.currentWord; fall back to the flashcard array
+    // Prefer REAL word (rawTerm). Fall back to current card.
     let word = (window.currentWord || "").trim();
     if (!word && Array.isArray(flashcards) && flashcards.length > 0) {
       const card = flashcards[currentCard] || {};
-      word = (card.term || "").trim();
+      word = (card.rawTerm || card.term || "").trim();
     }
 
     if (!word) {

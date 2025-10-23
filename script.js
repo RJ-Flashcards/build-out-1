@@ -115,28 +115,34 @@ function fetchFlashcards() {
 
       // Auto-detect and drop header if it looks like one
       if (rows.length && rows[0].length >= 2) {
-        const h0 = rows[0][0].toLowerCase();
-        const h1 = rows[0][1].toLowerCase();
+        const h0 = (rows[0][0] || '').toLowerCase();
+        const h1 = (rows[0][1] || '').toLowerCase();
         const looksLikeHeader =
           (h0.includes('word') || h0.includes('term')) &&
           (h1.includes('def') || h1.includes('meaning'));
         if (looksLikeHeader) rows = rows.slice(1);
       }
 
-      // ✅ Keep rows if EITHER side has content; add placeholders + badge flags
+      // ✅ SUPER-DEFENSIVE MAPPING:
+      // - Pad rows to at least 2 columns
+      // - Keep the row if EITHER side has content
+      // - Apply placeholders + badge flags
       flashcards = rows
-        .filter(r => r && r.length >= 1 && (
-          ((r[0] ?? '').trim() !== '') || ((r[1] ?? '').trim() !== '')
-        ))
         .map(r => {
-          const rawTerm = (r[0] ?? '').trim();
-          const rawDef  = (r[1] ?? '').trim();
+          const a = (r[0] ?? '').trim();
+          const b = (r[1] ?? '').trim();
+          return [a, b];
+        })
+        .filter(([a, b]) => a.length > 0 || b.length > 0)
+        .map(([a, b]) => {
+          const rawTerm = a;
+          const rawDef  = b;
 
           const term       = rawTerm || 'No word / phrase added';
           const definition = rawDef  || 'No definition added';
 
-          const badgeOnFront =  !!rawTerm && !rawDef;  // word present, definition missing
-          const badgeOnBack  =  !rawTerm && !!rawDef;  // definition present, word missing
+          const badgeOnFront =  !!rawTerm && !rawDef; // word present, definition missing
+          const badgeOnBack  =  !rawTerm && !!rawDef; // definition present, word missing
 
           return { rawTerm, rawDef, term, definition, badgeOnFront, badgeOnBack };
         });
@@ -144,8 +150,16 @@ function fetchFlashcards() {
       // Tag duplicates (use the real word when present)
       flashcards = tagDuplicates(flashcards);
 
+      // DEBUG: uncomment to verify counts in your console
+      // console.log('Total rows after parse:', rows.length);
+      // console.log('Cards kept:', flashcards.length);
+      // console.table(flashcards.map(c => ({ rawTerm: c.rawTerm, rawDef: c.rawDef })));
+
       shuffleFlashcards();
       displayCard();
+
+      // If you render an A–Z list in the app, call renderAZ() here (optional)
+      // renderAZ();
     })
     .catch(err => {
       document.getElementById('card-front').innerText = 'Error loading flashcards.';

@@ -1,10 +1,18 @@
-// === script.js (duplicate triangle + dictionary lookup) ===
+// === script.js (duplicate triangle + dictionary lookup + cache-busting + diags) ===
+
+const APP_BUILD = '2025-10-23-az-fix-2'; // << for debugging
+console.log('[Flashcards] Build:', APP_BUILD);
 
 const sheetURL = 'https://raw.githubusercontent.com/RJ-Flashcards/Flashcard-app3/main/vocab.csv';
 
 let flashcards = [];
 let currentCard = 0;
 let isFlipped = false;
+
+// --- cache-buster helper ---
+function bust(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
+}
 
 // Inject badge CSS so you don’t have to edit style.css
 (function ensureBadgeStyles(){
@@ -104,7 +112,8 @@ function tagDuplicates(cards) {
    Data loading & preparation
 ---------------------------- */
 function fetchFlashcards() {
-  fetch(sheetURL)
+  // IMPORTANT: cache-bust the CSV and disable HTTP cache
+  fetch(bust(sheetURL), { cache: 'no-store' })
     .then(response => {
       if (!response.ok) throw new Error('Failed to fetch CSV');
       return response.text();
@@ -112,6 +121,9 @@ function fetchFlashcards() {
     .then(text => {
       // Parse CSV robustly
       let rows = parseCSV(text);
+
+      // Debug: show how many lines we parsed
+      console.log('[Flashcards] Rows parsed:', rows.length);
 
       // Auto-detect and drop header if it looks like one
       if (rows.length && rows[0].length >= 2) {
@@ -123,14 +135,11 @@ function fetchFlashcards() {
         if (looksLikeHeader) rows = rows.slice(1);
       }
 
-      // ✅ SUPER-DEFENSIVE MAPPING:
-      // - Pad rows to at least 2 columns
-      // - Keep the row if EITHER side has content
-      // - Apply placeholders + badge flags
+      // ✅ KEEP-IF-EITHER-HAS-TEXT (no pre-filtering on shape)
       flashcards = rows
         .map(r => {
-          const a = (r[0] ?? '').trim();
-          const b = (r[1] ?? '').trim();
+          const a = (r && r[0] != null ? String(r[0]) : '').trim();
+          const b = (r && r[1] != null ? String(r[1]) : '').trim();
           return [a, b];
         })
         .filter(([a, b]) => a.length > 0 || b.length > 0)
@@ -146,58 +155,23 @@ function fetchFlashcards() {
 
           return { rawTerm, rawDef, term, definition, badgeOnFront, badgeOnBack };
         });
-// ✅ SUPER-DEFENSIVE NORMALIZATION + KEEP-IF-EITHER-HAS-TEXT
-flashcards = rows
-  // Normalize every row to at least 2 columns
-  .map(r => {
-    const a = (r && r[0] != null ? String(r[0]) : '').trim();
-    const b = (r && r[1] != null ? String(r[1]) : '').trim();
-    return [a, b];
-  })
-  // Keep the row unless BOTH are empty
-  .filter(([a, b]) => a.length > 0 || b.length > 0)
-  // Compute placeholders + which side shows the badge
-  .map(([a, b]) => {
-    const rawTerm = a;
-    const rawDef  = b;
 
-    const term       = rawTerm || 'No word / phrase added';
-    const definition = rawDef  || 'No definition added';
-
-    const badgeOnFront =  !!rawTerm && !rawDef; // word present, definition missing
-    const badgeOnBack  =  !rawTerm && !!rawDef; // definition present, word missing
-
-    return { rawTerm, rawDef, term, definition, badgeOnFront, badgeOnBack };
-  });
-console.log('Rows parsed:', rows.length);
-console.log('Cards kept:', flashcards.length);
-console.table(
-  flashcards.slice(0, 10).map(c => ({
-    rawTerm: c.rawTerm,
-    rawDef: c.rawDef,
-    term: c.term,
-    definition: c.definition,
-    badgeFront: c.badgeOnFront,
-    badgeBack: c.badgeOnBack
-  }))
-);
+      // Debug: confirm we kept rows with partial data
+      console.log('[Flashcards] Cards kept:', flashcards.length);
+      console.table(flashcards.slice(0, 8).map(c => ({
+        rawTerm: c.rawTerm, rawDef: c.rawDef,
+        badgeFront: c.badgeOnFront, badgeBack: c.badgeOnBack
+      })));
 
       // Tag duplicates (use the real word when present)
       flashcards = tagDuplicates(flashcards);
 
-      // DEBUG: uncomment to verify counts in your console
-      // console.log('Total rows after parse:', rows.length);
-      // console.log('Cards kept:', flashcards.length);
-      // console.table(flashcards.map(c => ({ rawTerm: c.rawTerm, rawDef: c.rawDef })));
-
       shuffleFlashcards();
       displayCard();
-
-      // If you render an A–Z list in the app, call renderAZ() here (optional)
-      // renderAZ();
     })
     .catch(err => {
-      document.getElementById('card-front').innerText = 'Error loading flashcards.';
+      const f = document.getElementById('card-front');
+      if (f) f.innerText = 'Error loading flashcards.';
       console.error('Error:', err);
     });
 }
@@ -213,6 +187,15 @@ function shuffleFlashcards() {
    Rendering
 ---------------------------- */
 function displayCard() {
+  if (!flashcards.length) {
+    const front = document.getElementById('card-front');
+    const back  = document.getElementById('card-back');
+    if (front) front.textContent = 'No data available';
+    if (back) back.textContent = '';
+    console.warn('[Flashcards] No cards to display.');
+    return;
+  }
+
   const front = document.getElementById('card-front');
   const back  = document.getElementById('card-back');
   const card  = flashcards[currentCard];
@@ -241,8 +224,10 @@ function displayCard() {
 
   // Keep current flipped state
   const flashcardEl = document.getElementById('flashcard');
-  if (isFlipped) flashcardEl.classList.add('flipped');
-  else flashcardEl.classList.remove('flipped');
+  if (flashcardEl) {
+    if (isFlipped) flashcardEl.classList.add('flipped');
+    else flashcardEl.classList.remove('flipped');
+  }
 
   // Expose REAL word for dictionary lookup (don’t pass the placeholder)
   window.currentWord = (card.rawTerm || '').trim();
@@ -263,7 +248,7 @@ function escapeHTML(str) {
 ---------------------------- */
 // Flip only on card tap (never on button press)
 document.getElementById('flashcard').addEventListener('click', (e) => {
-  if (e.target.tagName.toLowerCase() === 'button') {
+  if (e.target.tagName && e.target.tagName.toLowerCase() === 'button') {
     e.stopPropagation();
     return;
   }

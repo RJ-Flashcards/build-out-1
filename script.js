@@ -146,6 +146,41 @@ function fetchFlashcards() {
 
           return { rawTerm, rawDef, term, definition, badgeOnFront, badgeOnBack };
         });
+// ✅ SUPER-DEFENSIVE NORMALIZATION + KEEP-IF-EITHER-HAS-TEXT
+flashcards = rows
+  // Normalize every row to at least 2 columns
+  .map(r => {
+    const a = (r && r[0] != null ? String(r[0]) : '').trim();
+    const b = (r && r[1] != null ? String(r[1]) : '').trim();
+    return [a, b];
+  })
+  // Keep the row unless BOTH are empty
+  .filter(([a, b]) => a.length > 0 || b.length > 0)
+  // Compute placeholders + which side shows the badge
+  .map(([a, b]) => {
+    const rawTerm = a;
+    const rawDef  = b;
+
+    const term       = rawTerm || 'No word / phrase added';
+    const definition = rawDef  || 'No definition added';
+
+    const badgeOnFront =  !!rawTerm && !rawDef; // word present, definition missing
+    const badgeOnBack  =  !rawTerm && !!rawDef; // definition present, word missing
+
+    return { rawTerm, rawDef, term, definition, badgeOnFront, badgeOnBack };
+  });
+console.log('Rows parsed:', rows.length);
+console.log('Cards kept:', flashcards.length);
+console.table(
+  flashcards.slice(0, 10).map(c => ({
+    rawTerm: c.rawTerm,
+    rawDef: c.rawDef,
+    term: c.term,
+    definition: c.definition,
+    badgeFront: c.badgeOnFront,
+    badgeBack: c.badgeOnBack
+  }))
+);
 
       // Tag duplicates (use the real word when present)
       flashcards = tagDuplicates(flashcards);
